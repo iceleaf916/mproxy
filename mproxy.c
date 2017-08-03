@@ -12,7 +12,6 @@
 #include <sys/wait.h>
 #include <netinet/in.h> 
 
-
 #include <string.h>
 
 #define BUF_SIZE 8192
@@ -173,12 +172,67 @@ int read_header(int fd, void * buffer)
 
 }
 
+//字符串替换函数，在字符串 string 中查找 source， 找到则替换为destination，找不到则返回NULL  
+static char * replace_string (char * string, const char * source, const char * destination )  
+{  
+    char* sk = strstr (string, source);  
+    if (sk == NULL) return NULL;  
+  
+    char* tmp;  
+    size_t size = strlen(string)+strlen(destination)+1;  
+  
+    char* newstr = (char*)calloc (1, size);  
+    if (newstr == NULL) return NULL;  
+  
+    char* retstr = (char*)calloc (1, size);  
+    if (retstr == NULL)  
+    {  
+        free (newstr);  
+        return NULL;  
+    }  
+      
+    snprintf (newstr, size-1, "%s", string);  
+    sk = strstr (newstr, source);  
+  
+    while (sk != NULL)  
+    {  
+        int pos = 0;  
+        memcpy (retstr+pos, newstr, sk - newstr);  
+        pos += sk - newstr;  
+        sk += strlen(source);  
+        memcpy (retstr+pos, destination, strlen(destination));  
+        pos += strlen(destination);  
+        memcpy (retstr+pos, sk, strlen(sk));  
+  
+        tmp = newstr;  
+        newstr = retstr;  
+        retstr = tmp;  
+  
+        memset (retstr, 0, size);  
+        sk = strstr (newstr, source);  
+    }  
+    free (retstr);  
+    return newstr;  
+  
+}
+
 void extract_server_path(const char * header,char * output)
 {
     char * p = strstr(header,"GET /");
     if(p) {
         char * p1 = strchr(p+4,' ');
         strncpy(output,p+4,(int)(p1  - p - 4) );
+    }
+    
+}
+
+void extract_req_path(const char * header,char * output)
+{
+    char * p = strstr(header,"GET ");
+    if(p) {
+        char * p1 = strchr(p,' ');
+        char * p2 = strchr(p1+1,' ');
+        strncpy(output,p1+1,(int)(p2-1  - p1) );
     }
     
 }
@@ -357,15 +411,34 @@ void handle_client(int client_sock, struct sockaddr_in client_addr)
         
         #ifdef DEBUG
         LOG(" ============ handle new client ============\n");
-        LOG(">>>Header:%s\n",header_buffer);
         #endif
-        
+
         if(read_header(client_sock,header_buffer) < 0)
         {
             LOG("Read Http header failed\n");
             return;
-        } else 
+        } 
+		else 
         {
+
+            char * check_str = "http://img.yxgames.com/game/Public/default/img/logo.png";
+            char * target_str = "http://m.xygames.cn/static/m/img/top-logo.png";
+
+            char * check_host = "img.yxgames.com";
+            char * target_host = "m.xygames.cn";
+
+            char server_path[255] ;
+            extract_req_path(header_buffer,server_path);
+
+			if (strcmp(server_path, check_str) == 0){
+			    header_buffer = replace_string(header_buffer, check_str, target_str);
+			    header_buffer = replace_string(header_buffer, check_host, target_host);
+			}
+
+            #ifdef DEBUG
+            LOG(">>>Header:%s\n",header_buffer);
+            #endif
+
             char * p = strstr(header_buffer,"CONNECT"); /* 判断是否是http 隧道请求 */
             if(p) 
             {
@@ -387,6 +460,7 @@ void handle_client(int client_sock, struct sockaddr_in client_addr)
                 LOG("Cannot extract host field,bad http protrotol");
                 return;
             }
+    
             LOG("Host:%s port: %d io_flag:%d\n",remote_host,remote_port,io_flag);
 
         }
@@ -435,7 +509,7 @@ void forward_header(int destination_sock)
 {
     rewrite_header();
     #ifdef DEBUG
-        LOG("================ The Forward HEAD =================");
+        LOG("================ The Forward HEAD =================\n");
         LOG("%s\n",header_buffer);
     #endif
    
